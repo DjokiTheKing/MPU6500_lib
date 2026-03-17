@@ -1,0 +1,4 @@
+#ifndef MPU6500_IMPL_H
+#define MPU6500_IMPL_H
+
+#endif // MPU6500_IMPL_H
