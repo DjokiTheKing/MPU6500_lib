@@ -2,8 +2,12 @@
 #define MPU6500_H
 
 #include "pico/stdlib.h"
+#include "pico/stdio.h"
+
 #include "hardware/i2c.h"
 #include "hardware/spi.h"
+
+#include "MPU6500_regmap.h"
 
 /// @brief Class for interfacing with the MPU6500 module. Must call initialize() before using the sensor.
 class MPU6500{
@@ -16,15 +20,15 @@ class MPU6500{
         };
 
         enum ACCEL_BANDWIDTH{
-            ACCEL_BANDWIDTH_1130HZ_NO_DLPF=0b0001,
+            ACCEL_BANDWIDTH_1130HZ_NO_DLPF=0b1000,
             ACCEL_BANDWIDTH_460HZ_DLPF=0b0000,
-            ACCEL_BANDWIDTH_184HZ_DLPF=0b0010,
-            ACCEL_BANDWIDTH_92HZ_DLPF=0b0100,
-            ACCEL_BANDWIDTH_41HZ_DLPF=0b0110,
-            ACCEL_BANDWIDTH_20HZ_DLPF=0b1000,
-            ACCEL_BANDWIDTH_10HZ_DLPF=0b1010,
-            ACCEL_BANDWIDTH_5HZ_DLPF=0b1100,
-            ACCEL_BANDWIDTH_460HZ_DLPF=0b1110,
+            ACCEL_BANDWIDTH_184HZ_DLPF=0b0001,
+            ACCEL_BANDWIDTH_92HZ_DLPF=0b0010,
+            ACCEL_BANDWIDTH_41HZ_DLPF=0b0011,
+            ACCEL_BANDWIDTH_20HZ_DLPF=0b0100,
+            ACCEL_BANDWIDTH_10HZ_DLPF=0b0101,
+            ACCEL_BANDWIDTH_5HZ_DLPF=0b0110,
+            ACCEL_BANDWIDTH_460HZ_DLPF_1=0b0111,
         };
 
         enum GRYO_SCALE{
@@ -53,7 +57,7 @@ class MPU6500{
         /// @param scl SCL pin number.
         /// @param i2c i2c instance(default is i2c0).
         /// @param ad0 value of ad0 pin on the module(default is 0);
-        MPU6500(uint sda, uint scl, i2c_inst_t* i2c=i2c0, uint ad0=0);
+        MPU6500(uint sda, uint scl, i2c_inst_t* i2c, uint ad0=0);
 
         /// @brief Create an instance using the spi as the selected interface.
         /// @param miso MISO pin number.
@@ -62,10 +66,10 @@ class MPU6500{
         /// @param cs CS pin number.
         /// @param spi spi instance(default is spi0).
         /// @param ad0 value of ad0 pin on the module(default is 0);
-        MPU6500(uint miso, uint mosi, uint sck, uint cs, spi_inst_t* spi=spi0, uint ad0=0);
+        MPU6500(uint sck, uint mosi, uint miso, uint cs, spi_inst_t* spi);
 
         /// @brief Initialize the sensor for use.
-        void initialize();
+        bool initialize();
 
         /// @brief Gets the temperature data from the local buffer.
         /// @param temperature The temperature in Celsius.
@@ -101,7 +105,7 @@ class MPU6500{
         void gyroscope_raw(int16_t gyroscope[3]);
 
         /// @brief Check if sensor is responding.
-        /// @return If true sensor is okay.
+        /// @return If false sensor is okay.
         bool status();
 
         /// @brief Perform the self test of the sensors.
@@ -110,9 +114,12 @@ class MPU6500{
     
     private:
         i2c_inst_t* i2c = nullptr;
-        spi_inst_t* spi = nullptr;
+        int sda=-1, scl=-1; 
 
-        float acc_scale, gyro_scale;
+        spi_inst_t* spi = nullptr;
+        int miso=-1, mosi=-1, sck=-1, cs=-1;
+
+        float acc_scale = 1.f, gyro_scale = 1.f;
         uint8_t MPU6500_ADDRESS = 0x68;
     private:
         void write_register(uint8_t addr, uint8_t data);
