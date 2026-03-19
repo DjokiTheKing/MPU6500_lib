@@ -90,6 +90,22 @@ inline void MPU6500::gyroscope(float gyroscope[3])
     for (uint8_t item = 0; item < 3; item++) gyroscope[item] = float(gyro_raw[item]) * gyro_scale;
 }
 
+inline void MPU6500::motion(float acceleration[3], float gyroscope[3])
+{
+    
+    uint8_t buffer[14];
+
+    read_registers(MPU6500_DATA_REGS, buffer, 14);
+
+    acceleration[0] = float(int16_t(buffer[0] << 8) | buffer[1]) * acc_scale;
+    acceleration[1] = float(int16_t(buffer[2] << 8) | buffer[3]) * acc_scale;
+    acceleration[2] = float(int16_t(buffer[4] << 8) | buffer[5]) * acc_scale;
+
+    gyroscope[0] = float(int16_t(buffer[8]  << 8) | buffer[9] ) * gyro_scale;
+    gyroscope[1] = float(int16_t(buffer[10] << 8) | buffer[11]) * gyro_scale;
+    gyroscope[2] = float(int16_t(buffer[12] << 8) | buffer[13]) * gyro_scale;
+}
+
 inline void MPU6500::configure_accelerometer(ACCEL_SCALE scale, ACCEL_BANDWIDTH bandwidth)
 {
     write_register(MPU6500_ACCEL_CONFIG, scale << 3);
@@ -348,9 +364,57 @@ inline void MPU6500::calibrate(int32_t accel_bias_save[3], int32_t gyro_bias_sav
     write_register(MPU6500_ZG_OFFSET_L, gyro_offset_data[5]);
 }
 
-inline void MPU6500::write_calibration_from_save(uint8_t save[12])
+inline void MPU6500::write_calibration_from_save(int32_t accel_bias[3], int32_t gyro_bias[3])
 {
-    // TO DO
+    uint8_t read_data[2] = {0};
+    int16_t acc_bias_reg[3] = {0, 0, 0};    
+                    
+    spi_set_baudrate(spi, 1000000);
+
+    read_registers(MPU6500_XA_OFFSET_H, read_data, 2); 
+    acc_bias_reg[0] = (int16_t(read_data[0]) << 8) | read_data[1];
+
+    read_registers(MPU6500_YA_OFFSET_H, read_data, 2);
+    acc_bias_reg[1] = (int16_t(read_data[0]) << 8) | read_data[1];
+
+    read_registers(MPU6500_ZA_OFFSET_H, read_data, 2);
+    acc_bias_reg[2] = (int16_t(read_data[0]) << 8) | read_data[1];
+
+    for (int i = 0; i < 3; i++) {
+        uint8_t save_bit = acc_bias_reg[i] % 2;
+        acc_bias_reg[i] = (((acc_bias_reg[i] >> 1) - (int16_t(accel_bias[i] >> 4))) << 1) | save_bit;
+    }
+    
+    uint8_t accel_offset_data[6] = {0};
+    accel_offset_data[0] = (acc_bias_reg[0] >> 8) & 0xFF;
+    accel_offset_data[1] = (acc_bias_reg[0]) & 0xFF;
+    accel_offset_data[2] = (acc_bias_reg[1] >> 8) & 0xFF;
+    accel_offset_data[3] = (acc_bias_reg[1]) & 0xFF;
+    accel_offset_data[4] = (acc_bias_reg[2] >> 8) & 0xFF;
+    accel_offset_data[5] = (acc_bias_reg[2]) & 0xFF;
+
+    write_register(MPU6500_XA_OFFSET_H, accel_offset_data[0]);
+    write_register(MPU6500_XA_OFFSET_L, accel_offset_data[1]);
+    write_register(MPU6500_YA_OFFSET_H, accel_offset_data[2]);
+    write_register(MPU6500_YA_OFFSET_L, accel_offset_data[3]);
+    write_register(MPU6500_ZA_OFFSET_H, accel_offset_data[4]);
+    write_register(MPU6500_ZA_OFFSET_L, accel_offset_data[5]);
+
+
+    uint8_t gyro_offset_data[6] = {0};
+    gyro_offset_data[0] = ((-int16_t(gyro_bias[0] / 4)) >> 8) & 0xFF;
+    gyro_offset_data[1] = ( -int16_t(gyro_bias[0] / 4)) & 0xFF;
+    gyro_offset_data[2] = ((-int16_t(gyro_bias[1] / 4)) >> 8) & 0xFF;
+    gyro_offset_data[3] = ( -int16_t(gyro_bias[1] / 4)) & 0xFF;
+    gyro_offset_data[4] = ((-int16_t(gyro_bias[2] / 4)) >> 8) & 0xFF;
+    gyro_offset_data[5] = ( -int16_t(gyro_bias[2] / 4)) & 0xFF;
+
+    write_register(MPU6500_XG_OFFSET_H, gyro_offset_data[0]);
+    write_register(MPU6500_XG_OFFSET_L, gyro_offset_data[1]);
+    write_register(MPU6500_YG_OFFSET_H, gyro_offset_data[2]);
+    write_register(MPU6500_YG_OFFSET_L, gyro_offset_data[3]);
+    write_register(MPU6500_ZG_OFFSET_H, gyro_offset_data[4]);
+    write_register(MPU6500_ZG_OFFSET_L, gyro_offset_data[5]);
 }
 
 inline void MPU6500::temperature_raw(int16_t &temperature)

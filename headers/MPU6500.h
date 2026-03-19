@@ -71,17 +71,22 @@ class MPU6500{
         /// @brief Initialize the sensor for use.
         bool initialize();
 
-        /// @brief Gets the temperature data from the local buffer.
+        /// @brief Gets the temperature data from the module.
         /// @param temperature The temperature in Celsius.
         void temperature(float &temperature);
 
-        /// @brief Gets the acceleration data from the local buffer.
+        /// @brief Gets the acceleration data from the module.
         /// @param acceleration The x,y,z acceleration.
         void acceleration(float acceleration[3]);
 
-        /// @brief Gets the gyroscope data from the local buffer.
+        /// @brief Gets the gyroscope data from the module.
         /// @param gyroscope The x,y,z gyroscope data.
         void gyroscope(float gyroscope[3]);
+
+        /// @brief Gets the acceleration and gyroscope data from the module.
+        /// @param acceleration The x,y,z acceleration.
+        /// @param gyroscope The x,y,z gyroscope data.
+        void motion(float acceleration[3], float gyroscope[3]);
 
         /// @brief Configures the accelerometer with the given scale and bandwidth.
         void configure_accelerometer(ACCEL_SCALE scale, ACCEL_BANDWIDTH bandwidth);
@@ -98,7 +103,7 @@ class MPU6500{
 
         /// @brief Write the calibration data previously saved using calibrate_and_save() to the sensor.
         /// @param save Save buffer where the calibration data is stored.
-        void write_calibration_from_save(uint8_t save[12]);
+        void write_calibration_from_save(int32_t accel_bias[3], int32_t gyro_bias[3]);
 
         void temperature_raw(int16_t &temperature);
         void acceleration_raw(int16_t acceleration[3]);
