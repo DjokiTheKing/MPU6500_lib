@@ -92,9 +92,9 @@ class MPU6500{
         /// @brief Calibrate the sensor, must be in a flat position and not moving.
         void calibrate();
 
-        /// @brief Calibrate the sensor, must be in a flat position and not moving. Will save the calibration data to the passed save buffer.
-        /// @param save Save buffer where the calibration data will be stored. 
-        void calibrate_and_save(uint8_t save[12]);
+        /// @brief Calibrate the sensor, must be in a flat position and not moving. Will save the calibration data to the passed save buffers.
+        /// @param save Save buffers where the calibration data will be stored. 
+        void calibrate(int32_t accel_bias_save[3], int32_t gyro_bias_save[3]);
 
         /// @brief Write the calibration data previously saved using calibrate_and_save() to the sensor.
         /// @param save Save buffer where the calibration data is stored.

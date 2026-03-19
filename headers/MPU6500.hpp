@@ -45,9 +45,18 @@ inline bool MPU6500::initialize()
 
     write_register(MPU6500_PWR_MGMT_1, 0x80);
     busy_wait_ms(100);
+
     write_register(MPU6500_PWR_MGMT_1, 0x01);
     write_register(MPU6500_PWR_MGMT_2, 0x00);
+
+    write_register(MPU6500_INT_ENABLE, 0x00);
     write_register(MPU6500_INT_PIN_CFG, 0x02);
+
+    write_register(MPU6500_FIFO_EN, 0x00);
+
+    write_register(MPU6500_I2C_MST_CTRL, 0x00);
+    write_register(MPU6500_USER_CTRL, 0x00);
+    write_register(MPU6500_USER_CTRL, 0x0C);
 
     configure_accelerometer(ACCEL_SCALE_2G, ACCEL_BANDWIDTH_184HZ_DLPF);
     configure_gyroscope(GYRO_SCALE_250DPS, GYRO_BANDWIDTH_184HZ_DLPF);
@@ -131,14 +140,217 @@ inline void MPU6500::configure_gyroscope(GRYO_SCALE scale, GRYO_BANDWIDTH bandwi
 
 inline void MPU6500::calibrate()
 {
+    int32_t gyro_bias[3] = { 0, 0, 0 }, accel_bias[3] = { 0, 0, 0 };
+    uint8_t buffer[12] = { 0 };
+
+    configure_gyroscope(GYRO_SCALE_250DPS, GYRO_BANDWIDTH_184HZ_DLPF);
+    configure_accelerometer(ACCEL_SCALE_2G, ACCEL_BANDWIDTH_184HZ_DLPF);
+
+    write_register(MPU6500_USER_CTRL, 0x40);
+    write_register(MPU6500_FIFO_EN, 0x78);
+
+    busy_wait_ms(40);
+
+    write_register(MPU6500_FIFO_EN, 0x00);
+
+    spi_set_baudrate(spi, 1000000);
+    read_registers(MPU6500_FIFO_COUNT_H, buffer, 2);
+    
+    uint16_t read_count = ((uint16_t(buffer[0]) << 8) | buffer[1]);
+    
+    read_count /= 12;
+    for(int i = 0; i < read_count; ++i){
+        read_registers(MPU6500_FIFO_R_W, buffer, 12);
+        accel_bias[0] += int32_t((int16_t(int8_t(buffer[0]))  << 8) | buffer[1] );
+		accel_bias[1] += int32_t((int16_t(int8_t(buffer[2]))  << 8) | buffer[3] );
+		accel_bias[2] += int32_t((int16_t(int8_t(buffer[4]))  << 8) | buffer[5] );
+
+		gyro_bias[0]  += int32_t((int16_t(int8_t(buffer[6]))  << 8) | buffer[7] );
+		gyro_bias[1]  += int32_t((int16_t(int8_t(buffer[8]))  << 8) | buffer[9] );
+		gyro_bias[2]  += int32_t((int16_t(int8_t(buffer[10])) << 8) | buffer[11]);
+    }
+
+    write_register(MPU6500_USER_CTRL, 0x00);
+    write_register(MPU6500_USER_CTRL, 0x04);
+
+    accel_bias[0] /= int32_t(read_count);
+	accel_bias[1] /= int32_t(read_count);
+	accel_bias[2] /= int32_t(read_count);
+    
+	gyro_bias[0]  /= int32_t(read_count);
+	gyro_bias[1]  /= int32_t(read_count);
+	gyro_bias[2]  /= int32_t(read_count);
+
+    if (accel_bias[2] > 0L) {
+		accel_bias[2] -= 16384;
+	}
+	else {
+		accel_bias[2] += 16384;
+	}
+
+    uint8_t read_data[2] = {0};
+    int16_t acc_bias_reg[3] = {0, 0, 0};    
+                    
+    spi_set_baudrate(spi, 1000000);
+
+    read_registers(MPU6500_XA_OFFSET_H, read_data, 2); 
+    acc_bias_reg[0] = (int16_t(read_data[0]) << 8) | read_data[1];
+
+    read_registers(MPU6500_YA_OFFSET_H, read_data, 2);
+    acc_bias_reg[1] = (int16_t(read_data[0]) << 8) | read_data[1];
+
+    read_registers(MPU6500_ZA_OFFSET_H, read_data, 2);
+    acc_bias_reg[2] = (int16_t(read_data[0]) << 8) | read_data[1];
+
+    for (int i = 0; i < 3; i++) {
+        uint8_t save_bit = acc_bias_reg[i] % 2;
+        acc_bias_reg[i] = (((acc_bias_reg[i] >> 1) - (int16_t(accel_bias[i] >> 4))) << 1) | save_bit;
+    }
+    
+    uint8_t accel_offset_data[6] = {0};
+    accel_offset_data[0] = (acc_bias_reg[0] >> 8) & 0xFF;
+    accel_offset_data[1] = (acc_bias_reg[0]) & 0xFF;
+    accel_offset_data[2] = (acc_bias_reg[1] >> 8) & 0xFF;
+    accel_offset_data[3] = (acc_bias_reg[1]) & 0xFF;
+    accel_offset_data[4] = (acc_bias_reg[2] >> 8) & 0xFF;
+    accel_offset_data[5] = (acc_bias_reg[2]) & 0xFF;
+
+    write_register(MPU6500_XA_OFFSET_H, accel_offset_data[0]);
+    write_register(MPU6500_XA_OFFSET_L, accel_offset_data[1]);
+    write_register(MPU6500_YA_OFFSET_H, accel_offset_data[2]);
+    write_register(MPU6500_YA_OFFSET_L, accel_offset_data[3]);
+    write_register(MPU6500_ZA_OFFSET_H, accel_offset_data[4]);
+    write_register(MPU6500_ZA_OFFSET_L, accel_offset_data[5]);
+
+
+    uint8_t gyro_offset_data[6] = {0};
+    gyro_offset_data[0] = ((-int16_t(gyro_bias[0] / 4)) >> 8) & 0xFF;
+    gyro_offset_data[1] = ( -int16_t(gyro_bias[0] / 4)) & 0xFF;
+    gyro_offset_data[2] = ((-int16_t(gyro_bias[1] / 4)) >> 8) & 0xFF;
+    gyro_offset_data[3] = ( -int16_t(gyro_bias[1] / 4)) & 0xFF;
+    gyro_offset_data[4] = ((-int16_t(gyro_bias[2] / 4)) >> 8) & 0xFF;
+    gyro_offset_data[5] = ( -int16_t(gyro_bias[2] / 4)) & 0xFF;
+
+    write_register(MPU6500_XG_OFFSET_H, gyro_offset_data[0]);
+    write_register(MPU6500_XG_OFFSET_L, gyro_offset_data[1]);
+    write_register(MPU6500_YG_OFFSET_H, gyro_offset_data[2]);
+    write_register(MPU6500_YG_OFFSET_L, gyro_offset_data[3]);
+    write_register(MPU6500_ZG_OFFSET_H, gyro_offset_data[4]);
+    write_register(MPU6500_ZG_OFFSET_L, gyro_offset_data[5]);
 }
 
-inline void MPU6500::calibrate_and_save(uint8_t save[12])
+inline void MPU6500::calibrate(int32_t accel_bias_save[3], int32_t gyro_bias_save[3])
 {
+    int32_t gyro_bias[3] = { 0, 0, 0 }, accel_bias[3] = { 0, 0, 0 };
+    uint8_t buffer[12] = { 0 };
+
+    configure_gyroscope(GYRO_SCALE_250DPS, GYRO_BANDWIDTH_184HZ_DLPF);
+    configure_accelerometer(ACCEL_SCALE_2G, ACCEL_BANDWIDTH_184HZ_DLPF);
+
+    write_register(MPU6500_USER_CTRL, 0x40);
+    write_register(MPU6500_FIFO_EN, 0x78);
+
+    busy_wait_ms(40);
+
+    write_register(MPU6500_FIFO_EN, 0x00);
+
+    spi_set_baudrate(spi, 1000000);
+    read_registers(MPU6500_FIFO_COUNT_H, buffer, 2);
+    
+    uint16_t read_count = ((uint16_t(buffer[0]) << 8) | buffer[1]);
+    
+    read_count /= 12;
+    for(int i = 0; i < read_count; ++i){
+        read_registers(MPU6500_FIFO_R_W, buffer, 12);
+        accel_bias[0] += int32_t((int16_t(int8_t(buffer[0]))  << 8) | buffer[1] );
+		accel_bias[1] += int32_t((int16_t(int8_t(buffer[2]))  << 8) | buffer[3] );
+		accel_bias[2] += int32_t((int16_t(int8_t(buffer[4]))  << 8) | buffer[5] );
+
+		gyro_bias[0]  += int32_t((int16_t(int8_t(buffer[6]))  << 8) | buffer[7] );
+		gyro_bias[1]  += int32_t((int16_t(int8_t(buffer[8]))  << 8) | buffer[9] );
+		gyro_bias[2]  += int32_t((int16_t(int8_t(buffer[10])) << 8) | buffer[11]);
+    }
+
+    write_register(MPU6500_USER_CTRL, 0x00);
+    write_register(MPU6500_USER_CTRL, 0x04);
+
+    accel_bias[0] /= int32_t(read_count);
+	accel_bias[1] /= int32_t(read_count);
+	accel_bias[2] /= int32_t(read_count);
+    
+	gyro_bias[0]  /= int32_t(read_count);
+	gyro_bias[1]  /= int32_t(read_count);
+	gyro_bias[2]  /= int32_t(read_count);
+
+    if (accel_bias[2] > 0L) {
+		accel_bias[2] -= 16384;
+	}
+	else {
+		accel_bias[2] += 16384;
+	}
+
+    accel_bias_save[0] = accel_bias[0];
+    accel_bias_save[1] = accel_bias[1];
+    accel_bias_save[2] = accel_bias[2];
+
+    gyro_bias_save[0] = gyro_bias[0];
+    gyro_bias_save[1] = gyro_bias[1];
+    gyro_bias_save[2] = gyro_bias[2];
+
+    uint8_t read_data[2] = {0};
+    int16_t acc_bias_reg[3] = {0, 0, 0};    
+                    
+    spi_set_baudrate(spi, 1000000);
+
+    read_registers(MPU6500_XA_OFFSET_H, read_data, 2); 
+    acc_bias_reg[0] = (int16_t(read_data[0]) << 8) | read_data[1];
+
+    read_registers(MPU6500_YA_OFFSET_H, read_data, 2);
+    acc_bias_reg[1] = (int16_t(read_data[0]) << 8) | read_data[1];
+
+    read_registers(MPU6500_ZA_OFFSET_H, read_data, 2);
+    acc_bias_reg[2] = (int16_t(read_data[0]) << 8) | read_data[1];
+
+    for (int i = 0; i < 3; i++) {
+        uint8_t save_bit = acc_bias_reg[i] % 2;
+        acc_bias_reg[i] = (((acc_bias_reg[i] >> 1) - (int16_t(accel_bias[i] >> 4))) << 1) | save_bit;
+    }
+    
+    uint8_t accel_offset_data[6] = {0};
+    accel_offset_data[0] = (acc_bias_reg[0] >> 8) & 0xFF;
+    accel_offset_data[1] = (acc_bias_reg[0]) & 0xFF;
+    accel_offset_data[2] = (acc_bias_reg[1] >> 8) & 0xFF;
+    accel_offset_data[3] = (acc_bias_reg[1]) & 0xFF;
+    accel_offset_data[4] = (acc_bias_reg[2] >> 8) & 0xFF;
+    accel_offset_data[5] = (acc_bias_reg[2]) & 0xFF;
+
+    write_register(MPU6500_XA_OFFSET_H, accel_offset_data[0]);
+    write_register(MPU6500_XA_OFFSET_L, accel_offset_data[1]);
+    write_register(MPU6500_YA_OFFSET_H, accel_offset_data[2]);
+    write_register(MPU6500_YA_OFFSET_L, accel_offset_data[3]);
+    write_register(MPU6500_ZA_OFFSET_H, accel_offset_data[4]);
+    write_register(MPU6500_ZA_OFFSET_L, accel_offset_data[5]);
+
+
+    uint8_t gyro_offset_data[6] = {0};
+    gyro_offset_data[0] = ((-int16_t(gyro_bias[0] / 4)) >> 8) & 0xFF;
+    gyro_offset_data[1] = ( -int16_t(gyro_bias[0] / 4)) & 0xFF;
+    gyro_offset_data[2] = ((-int16_t(gyro_bias[1] / 4)) >> 8) & 0xFF;
+    gyro_offset_data[3] = ( -int16_t(gyro_bias[1] / 4)) & 0xFF;
+    gyro_offset_data[4] = ((-int16_t(gyro_bias[2] / 4)) >> 8) & 0xFF;
+    gyro_offset_data[5] = ( -int16_t(gyro_bias[2] / 4)) & 0xFF;
+
+    write_register(MPU6500_XG_OFFSET_H, gyro_offset_data[0]);
+    write_register(MPU6500_XG_OFFSET_L, gyro_offset_data[1]);
+    write_register(MPU6500_YG_OFFSET_H, gyro_offset_data[2]);
+    write_register(MPU6500_YG_OFFSET_L, gyro_offset_data[3]);
+    write_register(MPU6500_ZG_OFFSET_H, gyro_offset_data[4]);
+    write_register(MPU6500_ZG_OFFSET_L, gyro_offset_data[5]);
 }
 
 inline void MPU6500::write_calibration_from_save(uint8_t save[12])
 {
+    // TO DO
 }
 
 inline void MPU6500::temperature_raw(int16_t &temperature)
@@ -195,6 +407,7 @@ inline void MPU6500::write_register(uint8_t addr, uint8_t data)
         spi_write_blocking(spi, buf, 2);
         gpio_put(cs, 1);
         spi_set_baudrate(spi, 20000000);
+        busy_wait_us(100);
     }
 }
 
@@ -209,7 +422,7 @@ inline void MPU6500::read_registers(uint8_t addr, uint8_t data[], uint length)
         spi_write_blocking(spi, &addr, 1);
         spi_read_blocking(spi, 0, data, length);
         gpio_put(cs, 1);
-        busy_wait_us(200);
+        busy_wait_us(1);
     }
 }
 
